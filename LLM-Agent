@@ -1,0 +1,229 @@
+!pip install -qU google-generativeai
+
+from random import randint
+from typing import Iterable
+
+import google.generativeai as genai
+from google.api_core import retry
+
+from google.colab import userdata
+genai.configure(api_key=userdata.get('GOOGLE_API_KEY'))
+
+######################################
+######        Prompt market                ########
+######################################
+
+DIET_BOT_PROMPT = """\你是一名營養師，
+我會上傳我一整天吃的食物照片，
+再請你依照下方步驟幫我計算我今天的飲食
+
+1. 計算所有餐點熱量是多少
+
+2. 請參考下方資訊，來計算我今天的餐點包含甚麼營養素
+
+food_intake_recommendations = {
+    '穀物類': {1200: '1.5份', 1500: '2.5份', 1800: '3份', 2000: '3份', 2200: '3.5份', 2500: '4份', 2700: '4份'},
+    '蛋白質類': {1200: '3份', 1500: '4份', 1800: '5份', 2000: '6份', 2200: '6份', 2500: '7份', 2700: '8份'},
+    # 注意蛋白質類有兩個單位，這裡先只列出'份'單位的，後續可能需要添加'千克'單位的資訊
+    '蔬果類': {1200: '1.5杯', 1500: '1.5杯', 1800: '1.5杯', 2000: '1.5杯', 2200: '1.5杯', 2500: '1.5杯', 2700: '2杯'},
+    '牛奶類': {1200: '3份', 1500: '3份', 1800: '3份', 2000: '4份', 2200: '4份', 2500: '5份', 2700: '5份'},
+    '脂肪類': {1200: '2份', 1500: '2份', 1800: '2份', 2000: '3份', 2200: '3.5份', 2500: '4份', 2700: '4份'},
+    '水果類': {1200: '4份', 1500: '4份', 1800: '5份', 2000: '6份', 2200: '6份', 2500: '7份', 2700: '8份'},
+    # '自由額外熱量'類在圖中沒有提供足夠資訊，所以這裡省略該類別
+}
+
+
+3. 請以(30歲，男性，170公分，65公斤，正常運動量)的標準計算我的基礎代謝率與所需營養素
+
+4. 最後的回答格式請依照下方的例子產出一樣的回答格式:
+最後的產出是一個追踪營養攝入的表格。
+表格應該有三列：「需要量」、「食用量」和「差額」。
+對於每一類營養素，通過從「需要量」中減去「食用量」來計算「差額」。以下是每類營養素的類別和數據：
+
+- 熱量：需要量 - 2200卡路里，食用量 - 700卡路里
+- 穀物類：需要量 - 3.5份，食用量 - 2份
+- 蛋白質類：需要量 - 7份，食用量 - 3份
+- 蔬果類：需要量 - 1.5杯，食用量 - 1杯
+- 牛奶類：需要量 - 5份，食用量 - 0份
+- 脂肪類：需要量 - 4份，食用量 - 2份
+- 水果類：需要量 - 7份，食用量 - 0份
+
+請將表格格式化，具有清晰的標題，並且在「差額」列中，用負號表示負值。確保單位與提供的數據一致。
+
+"""
+
+
+
+FOOD_TO_NUTRITION_PROMPT = """\你是一名營養師，
+我會上傳一張食物照片，請產出一個營養攝入量的表格。
+表格只有一列：「攝入量」。
+以下是每類營養素的類別範例：
+
+- 熱量：攝入量  卡路里
+- 穀物類：攝入量  份
+- 蛋白質類：攝入量  份
+- 蔬果類：攝入量  杯
+- 牛奶類：攝入量  份
+- 脂肪類：攝入量  份
+- 水果類：攝入量  份
+
+請將表格格式化，具有清晰的標題，並且在「差額」列中，用負號表示負值。確保單位與提供的數據一致。
+
+"""
+
+
+NUTRITION_SUMMARIZE_PROMPT = """\你是一名營養師，
+我會上傳一筆或多筆的營養素資訊，請幫我把這些資訊彙整成一個營養攝入量的表格。
+表格只有一列：「攝入量」。
+以下是每類營養素的類別範例：
+
+- 熱量：攝入量  卡路里
+- 穀物類：攝入量  份
+- 蛋白質類：攝入量  份
+- 蔬果類：攝入量  杯
+- 牛奶類：攝入量  份
+- 脂肪類：攝入量  份
+- 水果類：攝入量  份
+
+請將表格格式化，具有清晰的標題，並且在「差額」列中，用負號表示負值。確保單位與提供的數據一致。
+
+"""
+
+
+NUTRITION_ADVISER_PROMPT = """\
+1. 你是一名營養師，請以(30歲，男性，170公分，65公斤，正常運動量)的標準，
+    計算我的基礎代謝率與所需營養素。
+
+2. 營養素的需求量請參考下方資訊。
+food_intake_recommendations = {
+    '穀物類': {1200: '1.5份', 1500: '2.5份', 1800: '3份', 2000: '3份', 2200: '3.5份', 2500: '4份', 2700: '4份'},
+    '蛋白質類': {1200: '3份', 1500: '4份', 1800: '5份', 2000: '6份', 2200: '6份', 2500: '7份', 2700: '8份'},
+    # 注意蛋白質類有兩個單位，這裡先只列出'份'單位的，後續可能需要添加'千克'單位的資訊
+    '蔬果類': {1200: '1.5杯', 1500: '1.5杯', 1800: '1.5杯', 2000: '1.5杯', 2200: '1.5杯', 2500: '1.5杯', 2700: '2杯'},
+    '牛奶類': {1200: '3份', 1500: '3份', 1800: '3份', 2000: '4份', 2200: '4份', 2500: '5份', 2700: '5份'},
+    '脂肪類': {1200: '2份', 1500: '2份', 1800: '2份', 2000: '3份', 2200: '3.5份', 2500: '4份', 2700: '4份'},
+    '水果類': {1200: '4份', 1500: '4份', 1800: '5份', 2000: '6份', 2200: '6份', 2500: '7份', 2700: '8份'},
+    # '自由額外熱量'類在圖中沒有提供足夠資訊，所以這裡省略該類別
+}
+
+3. 我會提供我今天全部營養素的總食用量。
+
+4. 最後的回答格式請依照下方的例子產出一樣的回答格式:
+最後的產出是一個追踪營養攝入的表格。
+表格應該有三列：「需要量」、「食用量」和「差額」。
+對於每一類營養素，通過從「需要量」中減去「食用量」來計算「差額」。以下為參考範例是每類營養素的類別和數據：
+
+- 熱量：需要量 - 2200卡路里，食用量 - 700卡路里
+- 穀物類：需要量 - 3.5份，食用量 - 2份
+- 蛋白質類：需要量 - 7份，食用量 - 3份
+- 蔬果類：需要量 - 1.5杯，食用量 - 1杯
+- 牛奶類：需要量 - 5份，食用量 - 0份
+- 脂肪類：需要量 - 4份，食用量 - 2份
+- 水果類：需要量 - 7份，食用量 - 0份
+
+請將表格格式化，具有清晰的標題，並且在「差額」列中，用負號表示負值。確保單位與提供的數據一致。
+
+
+5. 再針對我所缺少的營養素給一些飲食建議。
+
+"""
+
+
+
+######################################
+######        Get image                        ########
+######################################
+
+import requests
+from PIL import Image
+from io import BytesIO
+
+def get_img(image_url):
+    # 發送GET請求
+    response = requests.get(image_url)
+
+    # 確保請求成功
+    if response.status_code == 200:
+        # 使用BytesIO從二進位資料創建一個檔案對象
+        image_bytes = BytesIO(response.content)
+
+        # 使用Pillow讀取圖片
+        img = Image.open(image_bytes)
+
+        # 顯示圖片
+        img.show()
+    else:
+        print("Failed to retrieve the image.")
+
+    return img
+
+# 使用範例
+chicken_rice_url = 'https://imageproxy.icook.network/resize?background=255%2C255%2C255&nocrop=true&stripmeta=true&type=auto&url=http%3A%2F%2Ftokyo-kitchen.icook.tw.s3.amazonaws.com%2Fuploads%2Frecipe%2Fcover%2F398109%2Fbf05158f0da1fb3f.jpg&width=443'
+chicken_rice = get_img(chicken_rice_url)
+
+beef_noodle_url = 'https://imageproxy.icook.network/resize?background=255%2C255%2C255&nocrop=true&stripmeta=true&type=auto&url=http%3A%2F%2Ftokyo-kitchen.icook.tw.s3.amazonaws.com%2Fuploads%2Frecipe%2Fcover%2F425657%2F331b4f79ecaea7de.jpg&width=443'
+beef_noodle = get_img(beef_noodle_url)
+
+
+
+beef_noodle
+
+######################################
+######        Load package                  ########
+######################################
+
+
+# Get the API key from here: https://ai.google.dev/tutorials/setup
+# Create a new secret called "GEMINI_API_KEY" via Add-ons -> Secrets in the top menu, and attach it to this notebook.
+#from kaggle_secrets import UserSecretsClient
+from IPython.display import display
+from IPython.display import Markdown
+
+import pathlib
+import textwrap
+
+#user_secrets = UserSecretsClient()
+#apiKey = user_secrets.get_secret("GEMINI_API_KEY")
+
+from IPython.display import display, Markdown
+
+def to_markdown(text):
+  text = text.replace('•', '  *')
+  return Markdown(textwrap.indent(text, '> ', predicate=lambda _: True))
+
+######################################
+######        Model food to nutrition     ########
+######################################
+
+model_food_to_nutrition = genai.GenerativeModel('gemini-1.5-pro-latest', system_instruction=FOOD_TO_NUTRITION_PROMPT)
+
+response_food_to_nutrition_rice = model_food_to_nutrition.generate_content([chicken_rice])
+
+to_markdown(response_food_to_nutrition_rice.text)
+
+
+
+response_food_to_nutrition_noodle = model_food_to_nutrition.generate_content([beef_noodle])
+
+to_markdown(response_food_to_nutrition_noodle.text)
+
+######################################
+####     Model nutrition summarize     ########
+######################################
+
+model_nutrition_summarize = genai.GenerativeModel('gemini-1.5-pro-latest', system_instruction=NUTRITION_SUMMARIZE_PROMPT )
+
+response_nutrition_summarize = model_nutrition_summarize.generate_content([response_food_to_nutrition_rice.text, response_food_to_nutrition_noodle.text])
+
+to_markdown(response_nutrition_summarize.text)
+
+######################################
+####     Model nutrition adviser           ########
+######################################
+
+model_nutrition_adviser = genai.GenerativeModel('gemini-1.5-pro-latest', system_instruction=NUTRITION_ADVISER_PROMPT )
+
+response_nutrition_adviser = model_nutrition_adviser.generate_content([response_nutrition_summarize.text])
+
+to_markdown(response_nutrition_adviser.text)
+
