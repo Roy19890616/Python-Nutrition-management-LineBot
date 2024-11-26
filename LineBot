@@ -1,0 +1,137 @@
+from google.colab import drive
+drive.mount('/content/drive', force_remount=True)
+
+!mkdir -p /drive
+#umount /drive
+!mount --bind /content/drive/My\ Drive /drive
+!mkdir -p /drive/ngrok-ssh
+!mkdir -p ~/.ssh
+
+pip install Flask
+
+
+from google.colab import drive
+drive.mount('/content/drive')
+
+from flask import Flask   # 載入 Flask
+
+app = Flask(__name__)     # 建立 app 變數為 Flask 物件，__name__ 表示目前執行的程式
+
+@app.route("/")           # 使用函式裝飾器，建立一個路由 ( Routes )，可針對主網域 / 發出請求
+def home():               # 發出請求後會執行 home() 的函式
+    return "<h1>hello world</h1>"   # 執行函式後會回傳特定的網頁內容
+
+app.run()                 # 執行
+
+!mkdir -p /drive/ngrok-ssh
+%cd /drive/ngrok-ssh
+!wget https://bin.equinox.io/c/4VmDzA7iaHb/ngrok-stable-linux-amd64.zip -O ngrok-stable-linux-amd64.zip
+!unzip -u ngrok-stable-linux-amd64.zip
+!cp /drive/ngrok-ssh/ngrok /ngrok
+!chmod +x /ngrok
+
+
+!/ngrok authtoken <token>
+
+
+from flask import Flask
+
+app = Flask(__name__)
+
+@app.route("/", methods=['POST'])
+def home():
+    return "<h1>hello world</h1>"
+
+app.run()
+
+import requests
+web = requests.post('http://127.0.0.1:5000/')  # 使用 post 方法
+print(web.text)
+
+from flask import Flask
+
+app = Flask(__name__)
+
+@app.route("/")
+def home():
+    return "<h1>hello world</h1>"
+
+app.run(host="0.0.0.0", port=5555)
+
+from google.colab import drive
+drive.mount('/content/drive', force_remount=True)
+
+!mkdir -p /drive
+#umount /drive
+!mount --bind /content/drive/My\ Drive /drive
+!mkdir -p /drive/ngrok-ssh
+!mkdir -p ~/.ssh
+
+!mkdir -p /drive/ngrok-ssh
+%cd /drive/ngrok-ssh
+!wget https://bin.equinox.io/c/4VmDzA7iaHb/ngrok-stable-linux-amd64.zip -O ngrok-stable-linux-amd64.zip
+!unzip -u ngrok-stable-linux-amd64.zip
+!cp /drive/ngrok-ssh/ngrok /ngrok
+!chmod +x /ngrok
+
+!/ngrok authtoken <token>
+
+
+!pip install pyngrok
+
+
+import getpass
+
+from pyngrok import ngrok, conf
+
+print("Enter your authtoken, which can be copied from https://dashboard.ngrok.com/auth")
+conf.get_default().auth_token = getpass.getpass()
+
+# Open a TCP ngrok tunnel to the SSH server
+connection_string = ngrok.connect("22", "tcp").public_url
+
+ssh_url, port = connection_string.strip("tcp://").split(":")
+print(f" * ngrok tunnel available, access with `ssh root@{ssh_url} -p{port}`")
+
+from flask import Flask
+from pyngrok import ngrok
+
+app = Flask(__name__)
+port = "5000"
+
+# Open a ngrok tunnel to the HTTP server
+public_url = ngrok.connect(port).public_url
+print(f" * ngrok tunnel \"{public_url}\" -> \"http://127.0.0.1:{port}\" ")
+
+
+@app.route("/")
+def home():
+    return "Hello Colab!!"
+
+app.run()
+
+
+pip install Flask
+
+
+from flask import Flask, request, render_template
+from pyngrok import ngrok
+
+app = Flask(__name__)
+port = "5000"
+
+# Open a ngrok tunnel to the HTTP server
+public_url = ngrok.connect(port).public_url
+print(f" * ngrok tunnel \"{public_url}\" -> \"http://127.0.0.1:{port}\" ")
+
+@app.route('/')
+def home():
+    name = request.args.get('name')
+    return render_template('test.html', name=name)
+
+app.run()
+
+import requests
+web = requests.post('http://127.0.0.1:5000/')  # 使用 post 方法
+print(web.text)    # 讀取並印出 text 屬性
+
